@@ -6,15 +6,12 @@ import React, { useEffect, useState } from 'react';
 
 const calculateRSI = (prices, period = 14) => {
   if (!prices || prices.length < period + 1) return null;
-
   let gains = 0;
   let losses = 0;
   for (let i = prices.length - period + 1; i < prices.length; i++) {
     const diff = prices[i] - prices[i - 1];
-    if (diff >= 0) gains += diff;
-    else losses += Math.abs(diff);
+    diff >= 0 ? gains += diff : losses += Math.abs(diff);
   }
-
   if (losses === 0) return 100;
   const rs = gains / losses;
   return 100 - 100 / (1 + rs);
@@ -22,6 +19,10 @@ const calculateRSI = (prices, period = 14) => {
 
 const calculateMVRV = (price, avg7d) =>
   avg7d && avg7d > 0 ? price / avg7d : null;
+
+/* =========================
+   Risk score
+========================= */
 
 const calculateRiskScore = (
   { rsi, mvrv, change24h, volumeChange },
@@ -31,14 +32,14 @@ const calculateRiskScore = (
   let score = 0;
 
   if (typeof rsi === 'number') {
-    if (rsi > 75) score += 25;
-    else if (rsi > 70) score += 15;
+    if (rsi > 80) score += 30;
+    else if (rsi > 70) score += 20;
   }
 
   if (typeof mvrv === 'number') {
-    const factor = isBTC ? 1 : 0.7;
-    if (mvrv > 3 * factor) score += 30;
-    else if (mvrv > 2.2 * factor) score += 20;
+    const f = isBTC ? 1 : 0.7;
+    if (mvrv > 3 * f) score += 30;
+    else if (mvrv > 2.2 * f) score += 20;
   }
 
   if (typeof change24h === 'number') {
@@ -51,8 +52,7 @@ const calculateRiskScore = (
   }
 
   if (typeof fearGreed === 'number') {
-    if (fearGreed > 80) score += 15;
-    else if (fearGreed > 70) score += 10;
+    if (fearGreed > 75) score += 15;
     else if (fearGreed < 30) score -= 10;
   }
 
@@ -62,6 +62,10 @@ const calculateRiskScore = (
 const riskColor = score =>
   score < 30 ? '#22c55e' : score < 60 ? '#facc15' : '#ef4444';
 
+/* =========================
+   Main App
+========================= */
+
 export default function App() {
   const [tokens, setTokens] = useState(() => {
     const saved = localStorage.getItem('tokens');
@@ -70,12 +74,14 @@ export default function App() {
 
   const [data, setData] = useState({});
   const [fearGreed, setFearGreed] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState(null);
 
   useEffect(() => {
     localStorage.setItem('tokens', JSON.stringify(tokens));
   }, [tokens]);
 
+  /* Fear & Greed – once on app open */
   useEffect(() => {
     fetch('https://api.alternative.me/fng/')
       .then(r => r.json())
@@ -83,110 +89,118 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  /* Load token data */
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const ids = tokens.join(',');
-      const res = await fetch(
-        `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&sparkline=true&price_change_percentage=24h&volume_change_percentage=24h`
-      );
-      const market = await res.json();
-
-      const out = {};
-      for (const coin of market) {
-        const prices = coin.sparkline_in_7d?.price || [];
-        const avg7d = prices.length
-          ? prices.reduce((a, b) => a + b, 0) / prices.length
-          : null;
-
-        const rsi = calculateRSI(prices);
-        const mvrv = calculateMVRV(coin.current_price, avg7d);
-
-        const score = calculateRiskScore(
-          {
-            rsi,
-            mvrv,
-            change24h: coin.price_change_percentage_24h,
-            volumeChange: coin.volume_change_percentage_24h
-          },
-          coin.id === 'bitcoin',
-          fearGreed
+      try {
+        const ids = tokens.join(',');
+        const res = await fetch(
+          `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&sparkline=true&price_change_percentage=24h&volume_change_percentage=24h`
         );
 
-        out[coin.id] = { ...coin, rsi, mvrv, score };
-      }
+        if (!res.ok) throw new Error('CoinGecko hiba');
 
-      setData(out);
-      setLoading(false);
+        const market = await res.json();
+        if (!Array.isArray(market)) throw new Error('Invalid response');
+
+        const out = {};
+        for (const coin of market) {
+          const prices = coin.sparkline_in_7d?.price || [];
+          const avg7d =
+            prices.length > 0
+              ? prices.reduce((a, b) => a + b, 0) / prices.length
+              : null;
+
+          const rsi = calculateRSI(prices);
+          const mvrv = calculateMVRV(coin.current_price, avg7d);
+
+          const score = calculateRiskScore(
+            {
+              rsi,
+              mvrv,
+              change24h: coin.price_change_percentage_24h,
+              volumeChange: coin.volume_change_percentage_24h
+            },
+            coin.id === 'bitcoin',
+            fearGreed
+          );
+
+          out[coin.id] = { ...coin, rsi, mvrv, score };
+        }
+
+        setData(out);
+      } catch (err) {
+        alert(
+          'Hiba az adatok betöltésekor.\nLehetséges ok: rossz token ID vagy CoinGecko limit.'
+        );
+      } finally {
+        setLoading(false);
+      }
     }
 
     load();
   }, [tokens, fearGreed]);
 
+  /* =========================
+     Token add with validation
+  ========================= */
+
+  const addToken = async () => {
+    const id = prompt(
+      'CoinGecko token ID\n(pl: avalanche-2, chainlink, polygon-pos)'
+    );
+    if (!id || tokens.includes(id)) return;
+
+    try {
+      const res = await fetch(
+        `https://api.coingecko.com/api/v3/coins/${id}`
+      );
+      if (!res.ok) throw new Error('Invalid token');
+
+      setTokens([...tokens, id]);
+    } catch {
+      alert(
+        'Ismeretlen CoinGecko ID.\nPélda egy helyes ID-re: avalanche-2'
+      );
+    }
+  };
+
   return (
-    <div
-      style={{
-        padding: 16,
-        maxWidth: 420,
-        margin: '0 auto',
-        height: '100vh',
-        display: 'flex',
-        flexDirection: 'column'
-      }}
-    >
+    <div style={{ padding: 16, maxWidth: 420, margin: '0 auto', height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <h2>Crypto Risk Monitor</h2>
 
       {fearGreed !== null && (
-        <p>Fear &amp; Greed Index: <strong>{fearGreed}</strong></p>
+        <p>Fear & Greed Index: <strong>{fearGreed}</strong></p>
       )}
 
       <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
-        {loading && <p>Loading...</p>}
+        {loading && <p>Loading…</p>}
 
-        {!loading &&
-          Object.values(data).map(c => (
-            <div
-              key={c.id}
-              style={{
-                marginBottom: 12,
-                padding: 12,
-                borderRadius: 12,
-                background: riskColor(c.score),
-                position: 'relative'
-              }}
-            >
-              <button
-                onClick={() => setTokens(tokens.filter(t => t !== c.id))}
-                style={{
-                  position: 'absolute',
-                  top: 6,
-                  right: 10,
-                  background: 'transparent',
-                  border: 'none',
-                  fontSize: 18
-                }}
-              >
-                ❌
-              </button>
-
-              <strong>{c.name}</strong> — ${c.current_price}
-              <div style={{ fontSize: 14, marginTop: 6 }}>
-                RSI: {c.rsi?.toFixed(1) ?? '–'}<br />
-                MVRV: {c.mvrv?.toFixed(2) ?? '–'}<br />
-                24h: {c.price_change_percentage_24h?.toFixed(2)}%<br />
-                Risk score: {c.score}
-              </div>
+        {!loading && Object.values(data).map(c => (
+          <div
+            key={c.id}
+            onClick={() => setSelected(c)}
+            style={{
+              marginBottom: 12,
+              padding: 12,
+              borderRadius: 12,
+              background: riskColor(c.score),
+              cursor: 'pointer'
+            }}
+          >
+            <strong>{c.name}</strong> — ${c.current_price}
+            <div style={{ fontSize: 14 }}>
+              RSI: {c.rsi?.toFixed(1)} | MVRV: {c.mvrv?.toFixed(2)}
+              <br />
+              Risk score: {c.score}
             </div>
-          ))}
+          </div>
+        ))}
       </div>
 
       <button
-        onClick={() => {
-          const id = prompt('CoinGecko token ID (pl: avalanche-2, chainlink)');
-          if (id && !tokens.includes(id)) {
-            setTokens([...tokens, id]);
-          }
-        }}
+        onClick={addToken}
         style={{
           marginTop: 10,
           padding: 14,
@@ -197,6 +211,36 @@ export default function App() {
       >
         + Token hozzáadása
       </button>
+
+      {/* DETAIL MODAL */}
+      {selected && (
+        <div
+          onClick={() => setSelected(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.6)'
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff',
+              padding: 20,
+              borderRadius: 16,
+              margin: '10vh 16px'
+            }}
+          >
+            <h3>{selected.name}</h3>
+            <p>RSI: {selected.rsi} → {selected.rsi < 30 ? 'Alulvett' : selected.rsi > 70 ? 'Túlvetett' : 'Semleges'}</p>
+            <p>MVRV: {selected.mvrv?.toFixed(2)} → {selected.mvrv > 2.5 ? 'Túlfeszített' : 'Normál'}</p>
+            <p>24h változás: {selected.price_change_percentage_24h?.toFixed(2)}%</p>
+            <p><strong>Risk score:</strong> {selected.score}</p>
+            <p>{selected.score > 70 ? 'Csúcs közeli kockázat' : selected.score > 40 ? 'Figyelendő' : 'Alacsony kockázat'}</p>
+            <button style={{ marginTop: 10 }} onClick={() => setSelected(null)}>Bezár</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
