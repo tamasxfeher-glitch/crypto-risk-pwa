@@ -132,7 +132,7 @@ export default function App() {
         setData(out);
       } catch (err) {
         alert(
-          'Hiba az adatok betöltésekor.\nLehetséges ok: rossz token ID vagy CoinGecko limit.'
+          'Hiba az adatok betoltesekor.\nLehetseges ok: rossz token ID vagy CoinGecko limit.'
         );
       } finally {
         setLoading(false);
@@ -142,10 +142,7 @@ export default function App() {
     load();
   }, [tokens, fearGreed]);
 
-  /* =========================
-     Token add with validation
-  ========================= */
-
+  /* Token add with validation */
   const addToken = async () => {
     const id = prompt(
       'CoinGecko token ID\n(pl: avalanche-2, chainlink, polygon-pos)'
@@ -161,17 +158,26 @@ export default function App() {
       setTokens([...tokens, id]);
     } catch {
       alert(
-        'Ismeretlen CoinGecko ID.\nPélda egy helyes ID-re: avalanche-2'
+        'Ismeretlen CoinGecko ID.\nPelda egy helyes ID-re: avalanche-2'
       );
     }
   };
 
   return (
-    <div style={{ padding: 16, maxWidth: 420, margin: '0 auto', height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div
+      style={{
+        padding: 16,
+        maxWidth: 420,
+        margin: '0 auto',
+        height: '100vh',
+        display: 'flex',
+        flexDirection: 'column'
+      }}
+    >
       <h2>Crypto Risk Monitor</h2>
 
       {fearGreed !== null && (
-        <p>Fear & Greed Index: <strong>{fearGreed}</strong></p>
+        <p>Fear &amp; Greed Index: <strong>{fearGreed}</strong></p>
       )}
 
       <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
@@ -186,9 +192,30 @@ export default function App() {
               padding: 12,
               borderRadius: 12,
               background: riskColor(c.score),
+              position: 'relative',
               cursor: 'pointer'
             }}
           >
+            {/* ❌ TOKEN TORLES */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();   // ne nyissa meg a detail nezetet
+                setTokens(tokens.filter(t => t !== c.id));
+              }}
+              style={{
+                position: 'absolute',
+                top: 8,
+                right: 10,
+                background: 'transparent',
+                border: 'none',
+                fontSize: 18,
+                cursor: 'pointer'
+              }}
+              aria-label="Token torlese"
+            >
+              ❌
+            </button>
+
             <strong>{c.name}</strong> — ${c.current_price}
             <div style={{ fontSize: 14 }}>
               RSI: {c.rsi?.toFixed(1)} | MVRV: {c.mvrv?.toFixed(2)}
@@ -209,7 +236,7 @@ export default function App() {
           color: '#fff'
         }}
       >
-        + Token hozzáadása
+        + Token hozzaadasa
       </button>
 
       {/* DETAIL MODAL */}
@@ -232,12 +259,33 @@ export default function App() {
             }}
           >
             <h3>{selected.name}</h3>
-            <p>RSI: {selected.rsi} → {selected.rsi < 30 ? 'Alulvett' : selected.rsi > 70 ? 'Túlvetett' : 'Semleges'}</p>
-            <p>MVRV: {selected.mvrv?.toFixed(2)} → {selected.mvrv > 2.5 ? 'Túlfeszített' : 'Normál'}</p>
-            <p>24h változás: {selected.price_change_percentage_24h?.toFixed(2)}%</p>
-            <p><strong>Risk score:</strong> {selected.score}</p>
-            <p>{selected.score > 70 ? 'Csúcs közeli kockázat' : selected.score > 40 ? 'Figyelendő' : 'Alacsony kockázat'}</p>
-            <button style={{ marginTop: 10 }} onClick={() => setSelected(null)}>Bezár</button>
+            <p>
+              RSI: {selected.rsi} →{' '}
+              {selected.rsi < 30
+                ? 'Alulvett'
+                : selected.rsi > 70
+                ? 'Tulvetett'
+                : 'Semleges'}
+            </p>
+            <p>
+              MVRV: {selected.mvrv?.toFixed(2)} →{' '}
+              {selected.mvrv > 2.5 ? 'Tulfeszitett' : 'Normal'}
+            </p>
+            <p>
+              24h valtozas:{' '}
+              {selected.price_change_percentage_24h?.toFixed(2)}%
+            </p>
+            <p>
+              <strong>Risk score:</strong> {selected.score}
+            </p>
+            <p>
+              {selected.score > 70
+                ? 'Csucs kozeli kockazat'
+                : selected.score > 40
+                ? 'Figyelendo'
+                : 'Alacsony kockazat'}
+            </p>
+            <button onClick={() => setSelected(null)}>Bezar</button>
           </div>
         </div>
       )}
